@@ -73,7 +73,7 @@ let battleMenuState = 'MAIN'; // MAIN, SPELL, ITEM
 let menuCursor = 0; // 0:じゅもん, 1:どうぐ, 2:セーブ
 
 // 画像ロード（プレースホルダー）
-const images = {}; // 実装時はここにnew Image()を入れる
+const images = {}; 
 
 /* =========================================
    メインループ & 入力分岐
@@ -90,8 +90,6 @@ document.addEventListener('keydown', (e) => {
     let key = e.key;
     if (key === ' ') key = 'Space';
     
-    // メッセージ表示中はキー入力をブロック（自動送りがない場合）
-    // 今回はsetTimeoutで自動送りにするので、特別なブロックはしない
     handleInput(key);
 });
 
@@ -418,7 +416,6 @@ function loadGame() {
     const save = localStorage.getItem('js_rpg_save');
     if (save) {
         player = JSON.parse(save);
-        // ロード時にデータ整合性を保つため修正が必要ならここで
     }
 }
 
@@ -530,19 +527,24 @@ function drawBattle() {
     }
 }
 
+// ★修正した関数★
 function drawStatusWindow() {
     const w = canvas.width;
     const h = 80;
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
     ctx.fillRect(0,0,w,h);
     
     ctx.fillStyle = '#fff';
     ctx.font = '16px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`${player.level}Lv  ${player.gold}G`, 10, 25);
-    ctx.fillText(`HP:${player.hp}/${player.maxHp}  MP:${player.mp}/${player.maxMp}`, 10, 50);
-    ctx.fillText(`やくそう:${player.items['yakusou']}`, 200, 25);
-    ctx.fillText(`Exp:${player.exp}/${player.nextExp}`, 200, 50);
+    
+    // 左側カラム: Lv, Gold, HP, MP
+    ctx.fillText(`Lv:${player.level}  ${player.gold}G`, 10, 30);
+    ctx.fillText(`HP:${player.hp}/${player.maxHp}  MP:${player.mp}/${player.maxMp}`, 10, 60);
+    
+    // 右側カラム: Exp, Item (開始位置を200から260へ移動し、重なりを防止)
+    ctx.fillText(`Exp:${player.exp}/${player.nextExp}`, 260, 30);
+    ctx.fillText(`やくそう:${player.items['yakusou']}`, 260, 60);
 }
 
 function drawMenuWindow() {
