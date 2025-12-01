@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>DQ-like RPG Demo</title>
+    <style>
+        body {
+            background-color: #202020;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: "Courier New", monospace;
+        }
+        #game-container {
+            position: relative;
+            border: 4px solid #fff;
+        }
+        canvas {
+            display: block;
+            background-color: #000;
+        }
+        /* 会話ウィンドウのデザイン（ドラクエ風） */
+        #message-box {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            right: 10px;
+            height: 100px;
+            background: #000;
+            border: 2px solid #fff;
+            border-radius: 4px;
+            padding: 10px;
+            display: none; /* 初期状態は非表示 */
+            font-size: 16px;
+            line-height: 1.5;
+            box-shadow: 0 0 0 2px #000 inset; /* 内側の黒枠 */
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="480" height="480"></canvas>
+    <div id="message-box"></div>
+</div>
+
+<script>
+// --- 設定 ---
+const TILE_SIZE = 32; // 1マスのサイズ
+const ROWS = 15;      // 縦のマス数
+const COLS = 15;      // 横のマス数
+
+// --- マップデータ (0:草, 1:壁, 2:水) ---
+// ドラクエのように2次元配列でマップを作ります
+const mapData = [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1],
+    [1,0,0,1,1,1,0,0,0,0,1,0,0,0,1],
+    [1,0,0,1,2,1,0,0,0,0,1,0,0,0,1],
+    [1,0,0,1,2,1,0,0,0,0,1,0,0,0,1],
+    [1,0,0,1,1,1,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,1,1,1,0,0,0,0,0,1],
+    [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+
+// --- グローバル変数 ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const messageBox = document.getElementById('message-box');
+
+// ゲームの状態管理 (移動中か、会話中か)
+let gameState = 'PLAYING'; // 'PLAYING' or 'DIALOGUE'
+
+// プレイヤー情報
+const player = {
+    x: 2,  // グリッド座標X
+    y: 2,  // グリッド座標Y
+    direction: 'down', // 向いている方向
+    color: '#FFD700'   // 黄色
+};
+
+// NPC（村人）情報
+const npcs = [
+    { x: 7, y: 5, color: '#FF69B4', message: "こんにちは！\nここは Github Pages のせかいだよ。", name: "村人A" },
+    { x: 10, y: 10, color: '#00FFFF', message: "この先は 海だ。\nおよげないなら 気をつけな。", name: "兵士" }
+];
+
+// --- 入力制御 ---
+document.addEventListener('keydown', (e) => {
+    if (gameState === 'PLAYING') {
+        handleInputPlaying(e.key);
+    } else if (gameState === 'DIALOGUE') {
+        handleInputDialogue(e.key);
+    }
+});
+
+function handleInputPlaying(key) {
+    let nextX = player.x;
+    let nextY = player.y;
+
+    // 移動先の計算
+    if (key === 'ArrowUp') { nextY--; player.direction = 'up'; }
+    if (key === 'ArrowDown') { nextY++; player.direction = 'down'; }
+    if (key === 'ArrowLeft') { nextX--; player.direction = 'left'; }
+    if (key === 'ArrowRight') { nextX++; player.direction = 'right'; }
+    
+    // 決定キー(Space)で調べる
+    if (key === ' ' || key === 'Space') {
+        checkInteraction();
+        return;
+    }
+
+    // 移動可能かチェック (壁判定 & NPC判定)
+    if (isWalkable(nextX, nextY)) {
+        player.x = nextX;
+        player.y = nextY;
+    }
+    
+    draw();
+}
+
+function handleInputDialogue(key) {
+    // 会話中にスペースキーで閉じる
+    if (key === ' ' || key === 'Space' || key === 'Enter') {
+        gameState = 'PLAYING';
+        messageBox.style.display = 'none';
+    }
+}
+
+// --- 判定ロジック ---
+
+// 指定座標が通行可能か
+function isWalkable(x, y) {
+    // マップ範囲外
+    if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return false;
+    // 壁(1) や 水(2) は通れない
+    if (mapData[y][x] !== 0) return false;
+    // NPCがいる場所は通れない
+    for (const npc of npcs) {
+        if (npc.x === x && npc.y === y) return false;
+    }
+    return true;
+}
+
+// 目の前を調べる
+function checkInteraction() {
+    // 目の前の座標を計算
+    let targetX = player.x;
+    let targetY = player.y;
+
+    if (player.direction === 'up') targetY--;
+    if (player.direction === 'down') targetY++;
+    if (player.direction === 'left') targetX--;
+    if (player.direction === 'right') targetX++;
+
+    // NPCがいるか確認
+    const targetNPC = npcs.find(n => n.x === targetX && n.y === targetY);
+    
+    if (targetNPC) {
+        showMessage(targetNPC.name + ":<br>" + targetNPC.message);
+    }
+}
+
+function showMessage(text) {
+    gameState = 'DIALOGUE';
+    messageBox.innerHTML = text;
+    messageBox.style.display = 'block';
+}
+
+// --- 描画処理 ---
+function draw() {
+    // 画面クリア
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 1. マップ描画
+    for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+            const tile = mapData[y][x];
+            let color = '#228B22'; // 0:草 (緑)
+            if (tile === 1) color = '#808080'; // 1:壁 (灰)
+            if (tile === 2) color = '#1E90FF'; // 2:水 (青)
+            
+            ctx.fillStyle = color;
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            
+            // タイルの枠線（グリッドを見やすくするため）
+            ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+            ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        }
+    }
+
+    // 2. NPC描画
+    for (const npc of npcs) {
+        ctx.fillStyle = npc.color;
+        ctx.fillRect(npc.x * TILE_SIZE + 4, npc.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+    }
+
+    // 3. プレイヤー描画
+    ctx.fillStyle = player.color;
+    ctx.fillRect(player.x * TILE_SIZE + 4, player.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+    
+    // プレイヤーの向きを表示（小さな黒い四角で目を表現）
+    ctx.fillStyle = 'black';
+    let eyeX = player.x * TILE_SIZE + 12;
+    let eyeY = player.y * TILE_SIZE + 12;
+    if (player.direction === 'up') eyeY -= 6;
+    if (player.direction === 'down') eyeY += 6;
+    if (player.direction === 'left') eyeX -= 6;
+    if (player.direction === 'right') eyeX += 6;
+    ctx.fillRect(eyeX, eyeY, 8, 8);
+}
+
+// ゲーム開始時の初回描画
+draw();
+
+</script>
+</body>
+</html>
