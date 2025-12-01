@@ -1,26 +1,22 @@
 /* =========================================
-   設定・データ管理エリア
+   設定・データ定義
    ========================================= */
-const ASSETS = {
-    // 画像ファイルがある場合はパスを指定 (例: 'img/hero.png')
-    // 画像がない場合は null (色の四角で表示)
-    player: null, 
-    slime: null,
-    golem: null,
-    mapTile: null
-};
-
-// ゲーム設定
 const CONFIG = {
     tileSize: 32,
     rows: 15,
     cols: 15
 };
 
-// マップデータ (0:草, 1:壁, 2:水)
+const ASSETS = {
+    // 画像があればここにパスを指定
+    player: null,
+    enemy: null
+};
+
+// マップデータ (0:草, 1:壁, 2:水, 3:宿屋(町), 4:魔王城)
 const mapData = [
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1],
+    [1,3,0,0,0,0,0,1,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1],
     [1,0,0,1,1,1,0,0,0,0,1,0,0,0,1],
     [1,0,0,1,2,1,0,0,0,0,1,0,0,0,1],
@@ -29,88 +25,125 @@ const mapData = [
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,1,1,1,0,0,0,0,0,1],
-    [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1],
+    [1,0,0,0,0,0,1,4,1,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
 ];
 
+// 敵データ
+const enemyTypes = [
+    { id: 'slime', name: 'スライム', hp: 10, maxHp:10, attack: 5, xp: 3, gold: 5, color: '#32CD32' },
+    { id: 'bat',   name: 'ドラキー', hp: 18, maxHp:18, attack: 9, xp: 8, gold: 12, color: '#4B0082' },
+    { id: 'golem', name: 'ゴーレム', hp: 50, maxHp:50, attack: 18, xp: 25, gold: 50, color: '#A52A2A' }
+];
+const BOSS_DATA = { id: 'boss', name: 'りゅうおう', hp: 200, maxHp:200, attack: 30, xp: 0, gold: 0, color: '#800080' };
+
 /* =========================================
-   ゲームロジック
+   グローバル変数 & 初期化
    ========================================= */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const messageBox = document.getElementById('message-box');
 
-// ゲーム状態: PLAYING, DIALOGUE, BATTLE
-let gameState = 'PLAYING'; 
+// ゲームステート管理
+// TITLE, PLAYING, MENU, BATTLE, SHOP, ENDING
+let gameState = 'TITLE'; 
 
-// 画像プリロード処理
-const images = {};
-for (const key in ASSETS) {
-    if (ASSETS[key]) {
-        const img = new Image();
-        img.src = ASSETS[key];
-        images[key] = img;
-    }
-}
-
-// --- プレイヤーデータ ---
-const player = {
-    x: 2, y: 2, direction: 'down', color: '#FFD700',
-    // ステータス
-    level: 1,
-    hp: 30, maxHp: 30,
-    mp: 10, maxMp: 10,
-    attack: 8,
-    exp: 0, nextExp: 10, 
+// プレイヤー初期値
+const initialPlayer = {
+    x: 2, y: 2, direction: 'down',
+    level: 1, hp: 30, maxHp: 30, mp: 10, maxMp: 10, attack: 10,
+    exp: 0, nextExp: 15, gold: 0,
+    items: { 'yakusou': 3 }, // 初期アイテム: やくそう3個
     spells: [
-        { name: "ホイミ", cost: 3, type: "heal", value: 15 },
-        { name: "メラ",   cost: 2, type: "dmg",  value: 12 }
+        { name: "ホイミ", cost: 3, type: "heal", value: 20 },
+        { name: "メラ",   cost: 2, type: "dmg",  value: 15 }
     ]
 };
+let player = JSON.parse(JSON.stringify(initialPlayer));
 
-// --- NPC ---
-const npcs = [
-    { x: 7, y: 5, color: '#FF69B4', message: "レベルをあげれば\nじゅもん が つかえるようになるわ。", name: "村人A" },
-    { x: 10, y: 10, color: '#00FFFF', message: "じゅもんを使うには\nMP（マジックポイント）が必要だ。", name: "兵士" }
-];
-
-// --- 敵データ ---
-const enemyTypes = [
-    { id: 'slime', name: 'スライム', hp: 15, attack: 5, xp: 4, color: '#32CD32' },
-    { id: 'golem', name: 'ゴーレム', hp: 40, attack: 12, xp: 10, color: '#A52A2A' }
-];
-
-// --- 戦闘用変数 ---
+// 戦闘用変数
 let battleEnemy = null;
-let battleCursor = 0;   // 0:たたかう, 1:じゅもん, 2:にげる
-let battleMenuState = 'MAIN'; // MAIN, SPELL
-let spellCursor = 0;
+let battleCursor = 0; // 0:たたかう, 1:じゅもん, 2:どうぐ, 3:にげる
+let battleMenuState = 'MAIN'; // MAIN, SPELL, ITEM
 
-// =========================================
-// 入力・進行管理
-// =========================================
+// メニュー用変数
+let menuCursor = 0; // 0:じゅもん, 1:どうぐ, 2:セーブ
+
+// 画像ロード（プレースホルダー）
+const images = {}; // 実装時はここにnew Image()を入れる
+
+/* =========================================
+   メインループ & 入力分岐
+   ========================================= */
+
+function gameLoop() {
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+// キー入力ハンドリング
+document.addEventListener('keydown', (e) => {
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+    let key = e.key;
+    if (key === ' ') key = 'Space';
+    
+    // メッセージ表示中はキー入力をブロック（自動送りがない場合）
+    // 今回はsetTimeoutで自動送りにするので、特別なブロックはしない
+    handleInput(key);
+});
+
+// スマホ対応
+const btns = document.querySelectorAll('.d-btn, .btn-a');
+btns.forEach(btn => {
+    const handler = (e) => {
+        e.preventDefault();
+        handleInput(btn.getAttribute('data-key'));
+    };
+    btn.addEventListener('touchstart', handler, {passive:false});
+    btn.addEventListener('mousedown', handler);
+});
 
 function handleInput(key) {
-    if (gameState === 'PLAYING') {
-        if (key.startsWith('Arrow')) movePlayer(key);
-        if (key === 'Space' || key === 'Enter') checkInteraction();
+    if (messageBox.style.display === 'block' && gameState !== 'TITLE') return; // メッセージ中は操作禁止
 
-    } else if (gameState === 'DIALOGUE') {
-        if (key === 'Space' || key === 'Enter') {
-            gameState = 'PLAYING';
-            messageBox.style.display = 'none';
-        }
-
-    } else if (gameState === 'BATTLE') {
-        handleBattleInput(key);
+    switch (gameState) {
+        case 'TITLE':
+            if (key === 'Space' || key === 'Enter') {
+                loadGame(); // セーブがあればロード、なければ初期化
+                gameState = 'PLAYING';
+            }
+            break;
+        case 'PLAYING':
+            handlePlayingInput(key);
+            break;
+        case 'MENU':
+            handleMenuInput(key);
+            break;
+        case 'BATTLE':
+            handleBattleInput(key);
+            break;
+        case 'ENDING':
+            if (key === 'Space' || key === 'Enter') location.reload();
+            break;
     }
 }
 
-// --- マップ移動 ---
-function movePlayer(key) {
+/* =========================================
+   各シーンのロジック
+   ========================================= */
+
+// --- PLAYING (マップ移動) ---
+function handlePlayingInput(key) {
+    if (key === 'Space' || key === 'Enter') {
+        // メニューを開く
+        gameState = 'MENU';
+        menuCursor = 0;
+        return;
+    }
+
     let nextX = player.x;
     let nextY = player.y;
 
@@ -119,137 +152,202 @@ function movePlayer(key) {
     if (key === 'ArrowLeft')  { nextX--; player.direction = 'left'; }
     if (key === 'ArrowRight') { nextX++; player.direction = 'right'; }
 
+    // 移動処理
     if (isWalkable(nextX, nextY)) {
         player.x = nextX;
         player.y = nextY;
         
-        // エンカウント判定 (10%の確率)
-        if (mapData[nextY][nextX] === 0 && Math.random() < 0.1) {
-            startBattle();
-        }
+        // イベントチェック
+        checkTileEvent(nextX, nextY);
     }
-    draw();
 }
 
 function isWalkable(x, y) {
     if (x < 0 || x >= CONFIG.cols || y < 0 || y >= CONFIG.rows) return false;
-    if (mapData[y][x] !== 0) return false;
-    for (const npc of npcs) if (npc.x === x && npc.y === y) return false;
-    return true;
+    // 0:草, 3:宿屋, 4:魔王 は歩ける。 1:壁, 2:水 は歩けない
+    const t = mapData[y][x];
+    return (t === 0 || t === 3 || t === 4);
 }
 
-function checkInteraction() {
-    let tx = player.x, ty = player.y;
-    if (player.direction === 'up') ty--;
-    if (player.direction === 'down') ty++;
-    if (player.direction === 'left') tx--;
-    if (player.direction === 'right') tx++;
+function checkTileEvent(x, y) {
+    const tile = mapData[y][x];
 
-    const npc = npcs.find(n => n.x === tx && n.y === ty);
-    if (npc) showMessage(`${npc.name}:\n${npc.message}`);
+    // 宿屋 (Tile 3)
+    if (tile === 3) {
+        showMessage("宿屋だ。10Gで HP/MPを 回復します。", false);
+        setTimeout(() => {
+            if (player.gold >= 10) {
+                player.gold -= 10;
+                player.hp = player.maxHp;
+                player.mp = player.maxMp;
+                showMessage("ゆうべは おたのしみでしたね。\n(HP/MPが かいふくした！)", false);
+            } else {
+                showMessage("お金が 足りないようだ...", false);
+            }
+            setTimeout(closeMessage, 2000);
+        }, 1500);
+        return;
+    }
+
+    // 魔王 (Tile 4)
+    if (tile === 4) {
+        showMessage("よくきたな...。\nわしを倒して 世界を救ってみせよ！", false);
+        setTimeout(() => {
+            closeMessage();
+            startBattle(true); // ボス戦
+        }, 2000);
+        return;
+    }
+
+    // ランダムエンカウント (草地のみ)
+    if (tile === 0 && Math.random() < 0.1) {
+        startBattle(false);
+    }
 }
 
-function showMessage(text, isBattle = false) {
-    if (!isBattle) gameState = 'DIALOGUE';
-    messageBox.innerText = text;
-    messageBox.style.display = 'block';
+// --- MENU (フィールドメニュー) ---
+function handleMenuInput(key) {
+    if (key === 'ArrowUp')   menuCursor = (menuCursor + 2) % 3;
+    if (key === 'ArrowDown') menuCursor = (menuCursor + 1) % 3;
+    if (key === 'ArrowLeft') { gameState = 'PLAYING'; return; } // キャンセル
+
+    if (key === 'Space' || key === 'Enter') {
+        if (menuCursor === 0) { // じゅもん（簡易回復）
+            if (player.mp >= 3) {
+                player.mp -= 3;
+                player.hp = Math.min(player.maxHp, player.hp + 20);
+                showMessage("ホイミをとなえた！ HP回復！", false);
+                setTimeout(closeMessage, 1000);
+            } else {
+                showMessage("MPが足りない！", false);
+                setTimeout(closeMessage, 1000);
+            }
+        }
+        if (menuCursor === 1) { // どうぐ（やくそう）
+            if (player.items['yakusou'] > 0) {
+                player.items['yakusou']--;
+                player.hp = Math.min(player.maxHp, player.hp + 30);
+                showMessage("やくそうを使った！ HP回復！", false);
+                setTimeout(closeMessage, 1000);
+            } else {
+                showMessage("やくそうを持っていない！", false);
+                setTimeout(closeMessage, 1000);
+            }
+        }
+        if (menuCursor === 2) { // セーブ
+            saveGame();
+            showMessage("冒険の書に 記録しました。", false);
+            setTimeout(() => { closeMessage(); gameState = 'PLAYING'; }, 1500);
+        }
+    }
 }
 
-// =========================================
-// 戦闘システム
-// =========================================
-
-function startBattle() {
+// --- BATTLE (戦闘) ---
+function startBattle(isBoss) {
     gameState = 'BATTLE';
     battleMenuState = 'MAIN';
     battleCursor = 0;
-    
-    const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
-    battleEnemy = { ...type, maxHp: type.hp }; // コピー作成
+
+    if (isBoss) {
+        battleEnemy = { ...BOSS_DATA };
+    } else {
+        const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+        battleEnemy = { ...type };
+    }
+    battleEnemy.maxHp = battleEnemy.hp; // コピー時にmaxHp確保
 
     showMessage(`${battleEnemy.name} が あらわれた！`, true);
-    draw();
-
-    // 【修正】1.5秒後にメッセージを消してコマンド入力を可能にする
-    setTimeout(() => {
-        messageBox.style.display = 'none';
-        draw();
-    }, 1500);
+    setTimeout(() => { closeMessage(); }, 1500);
 }
 
 function handleBattleInput(key) {
-    // メッセージ表示中は入力を無視
-    if (messageBox.style.display === 'block' && gameState === 'BATTLE') {
-        return; 
-    }
-
     if (battleMenuState === 'MAIN') {
-        // メインメニュー操作
-        if (key === 'ArrowUp')   battleCursor = (battleCursor + 2) % 3; // 循環
-        if (key === 'ArrowDown') battleCursor = (battleCursor + 1) % 3;
+        if (key === 'ArrowUp')   battleCursor = (battleCursor + 3) % 4;
+        if (key === 'ArrowDown') battleCursor = (battleCursor + 1) % 4;
         
         if (key === 'Space' || key === 'Enter') {
             if (battleCursor === 0) executeAttack();
-            if (battleCursor === 1) { battleMenuState = 'SPELL'; spellCursor = 0; }
-            if (battleCursor === 2) executeRun();
+            if (battleCursor === 1) { battleMenuState = 'SPELL'; battleCursor = 0; } // 呪文選択へ（カーソル再利用）
+            if (battleCursor === 2) useItemInBattle();
+            if (battleCursor === 3) executeRun();
         }
-
     } else if (battleMenuState === 'SPELL') {
-        // 呪文メニュー操作
-        if (key === 'ArrowUp')   spellCursor = Math.max(0, spellCursor - 1);
-        if (key === 'ArrowDown') spellCursor = Math.min(player.spells.length - 1, spellCursor + 1);
-        if (key === 'ArrowLeft') battleMenuState = 'MAIN'; // キャンセル
+        // 簡易実装: ホイミかメラか選ぶ
+        if (key === 'ArrowUp' || key === 'ArrowDown') battleCursor = (battleCursor === 0) ? 1 : 0;
+        if (key === 'ArrowLeft') { battleMenuState = 'MAIN'; battleCursor = 1; } // 戻る
 
         if (key === 'Space' || key === 'Enter') {
-            executeSpell(player.spells[spellCursor]);
+            const spell = player.spells[battleCursor];
+            executeSpell(spell);
         }
     }
-    draw();
 }
 
-// 行動: たたかう
 function executeAttack() {
-    const dmg = Math.max(1, player.attack - Math.floor(Math.random() * 2));
+    const dmg = Math.max(1, player.attack - Math.floor(Math.random() * 3));
     battleEnemy.hp -= dmg;
-    
     showMessage(`あなたの こうげき！\n${battleEnemy.name} に ${dmg} のダメージ！`, true);
     checkWinOrEnemyTurn();
 }
 
-// 行動: じゅもん
 function executeSpell(spell) {
     if (player.mp < spell.cost) {
-        showMessage(`MPが 足りない！`, true);
-        // 【修正】メッセージを消して戻る処理を追加
-        setTimeout(() => { 
-            messageBox.style.display = 'none'; 
-            draw(); 
-        }, 1000);
+        showMessage("MPが足りない！", true);
+        setTimeout(() => { closeMessage(); battleMenuState = 'MAIN'; }, 1000);
         return;
     }
-
     player.mp -= spell.cost;
-
+    
     if (spell.type === 'heal') {
-        // 回復
         player.hp = Math.min(player.maxHp, player.hp + spell.value);
-        showMessage(`${spell.name} を となえた！\nHPが ${spell.value} かいふくした！`, true);
-        setTimeout(() => enemyTurn(), 1000); 
-
-    } else if (spell.type === 'dmg') {
-        // 攻撃魔法
+        showMessage(`${spell.name}！ HPが ${spell.value} かいふく！`, true);
+        setTimeout(enemyTurn, 1000);
+    } else {
         battleEnemy.hp -= spell.value;
-        showMessage(`${spell.name} を となえた！\n${battleEnemy.name} に ${spell.value} のダメージ！`, true);
+        showMessage(`${spell.name}！ ${battleEnemy.name} に ${spell.value} のダメージ！`, true);
         checkWinOrEnemyTurn();
     }
 }
 
-// 行動: にげる
+function useItemInBattle() {
+    if (player.items['yakusou'] > 0) {
+        player.items['yakusou']--;
+        player.hp = Math.min(player.maxHp, player.hp + 30);
+        showMessage("やくそうを使った！ HPが 30 かいふく！", true);
+        setTimeout(enemyTurn, 1000);
+    } else {
+        showMessage("どうぐ が ない！", true);
+        setTimeout(() => { closeMessage(); }, 1000);
+    }
+}
+
 function executeRun() {
+    if (battleEnemy.id === 'boss') {
+        showMessage("魔王からは 逃げられない！", true);
+        setTimeout(() => { closeMessage(); enemyTurn(); }, 1000);
+        return;
+    }
     showMessage("あなたは にげだした！", true);
+    setTimeout(() => { gameState = 'PLAYING'; closeMessage(); }, 1000);
+}
+
+function enemyTurn() {
+    const dmg = Math.max(1, battleEnemy.attack - Math.floor(Math.random() * 3));
+    player.hp -= dmg;
+    showMessage(`${battleEnemy.name} の こうげき！\n${dmg} のダメージをうけた！`, true);
+    
     setTimeout(() => {
-        endBattle();
-    }, 1000);
+        if (player.hp <= 0) {
+            showMessage("あなたは しんでしまった...", true);
+            player.gold = Math.floor(player.gold / 2); // デスペナルティ
+            saveGame(); // お金半減でセーブ
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            closeMessage();
+            battleMenuState = 'MAIN';
+            battleCursor = 0;
+        }
+    }, 1500);
 }
 
 function checkWinOrEnemyTurn() {
@@ -262,197 +360,210 @@ function checkWinOrEnemyTurn() {
     }, 1000);
 }
 
-// 敵のターン
-function enemyTurn() {
-    const dmg = Math.max(1, battleEnemy.attack - Math.floor(Math.random() * 3));
-    player.hp -= dmg;
-
-    showMessage(`${battleEnemy.name} の こうげき！\nあなたは ${dmg} のダメージをうけた！`, true);
-    
-    setTimeout(() => {
-        if (player.hp <= 0) {
-            showMessage("あなたは しんでしまった...", true);
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            // メッセージを消してコマンド入力へ
-            showMessage("", true); 
-            messageBox.style.display = 'none';
-            battleMenuState = 'MAIN';
-            draw();
-        }
-    }, 1500);
-}
-
-// 勝利処理
 function processWin() {
+    // 勝利処理
+    if (battleEnemy.id === 'boss') {
+        gameState = 'ENDING';
+        return;
+    }
+
     const xp = battleEnemy.xp;
+    const gold = battleEnemy.gold;
     player.exp += xp;
+    player.gold += gold;
     
-    let msg = `${battleEnemy.name} を たおした！\nけいけんち ${xp} をてにいれた。`;
-    
-    // レベルアップ判定
+    // ドロップアイテム（20%でやくそう）
+    let dropMsg = "";
+    if (Math.random() < 0.2) {
+        player.items['yakusou']++;
+        dropMsg = "\nさらに やくそうを 手に入れた！";
+    }
+
+    let msg = `${battleEnemy.name}を倒した！\n経験値${xp} ゴールド${gold} を得た。${dropMsg}`;
+
+    // レベルアップ
     if (player.exp >= player.nextExp) {
         player.level++;
-        player.exp -= player.nextExp; // 余剰分持ち越し
-        player.nextExp = Math.floor(player.nextExp * 1.5); // 必要経験値増加
-        
-        // ステータス上昇
-        player.maxHp += 5;
-        player.maxMp += 3;
-        player.hp = player.maxHp; // 全回復
-        player.mp = player.maxMp;
-        player.attack += 2;
-
-        msg += `\nレベルが ${player.level} に あがった！`;
+        player.nextExp = Math.floor(player.nextExp * 1.5);
+        player.maxHp += 8; player.maxMp += 4; player.attack += 3;
+        player.hp = player.maxHp; player.mp = player.maxMp;
+        msg += `\nレベルが ${player.level} にあがった！`;
     }
 
     showMessage(msg, true);
-    setTimeout(() => endBattle(), 2000);
+    setTimeout(() => {
+        gameState = 'PLAYING';
+        closeMessage();
+    }, 2500);
 }
 
-function endBattle() {
-    gameState = 'PLAYING';
+
+/* =========================================
+   共通関数 (セーブ・ロード・描画)
+   ========================================= */
+
+function showMessage(text, isBattle) {
+    messageBox.innerText = text;
+    messageBox.style.display = 'block';
+}
+function closeMessage() {
     messageBox.style.display = 'none';
-    draw();
 }
 
-// =========================================
-// 描画処理
-// =========================================
-
-function draw() {
-    // 画面クリア
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    if (gameState === 'BATTLE') {
-        drawBattleScene();
-    } else {
-        drawMapScene();
+// セーブ機能 (LocalStorage)
+function saveGame() {
+    localStorage.setItem('js_rpg_save', JSON.stringify(player));
+}
+function loadGame() {
+    const save = localStorage.getItem('js_rpg_save');
+    if (save) {
+        player = JSON.parse(save);
+        // ロード時にデータ整合性を保つため修正が必要ならここで
     }
 }
 
-function drawMapScene() {
-    // マップ
+// 描画メイン
+function draw() {
+    // 背景クリア
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (gameState === 'TITLE') drawTitle();
+    else if (gameState === 'ENDING') drawEnding();
+    else if (gameState === 'BATTLE') drawBattle();
+    else drawMap(); // PLAYING, MENU, SHOP
+}
+
+function drawTitle() {
+    ctx.fillStyle = '#fff';
+    ctx.font = '40px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText("J A V A  Q U E S T", canvas.width/2, 150);
+    
+    ctx.font = '20px monospace';
+    ctx.fillText("PRESS SPACE TO START", canvas.width/2, 300);
+    
+    // セーブデータがあるか確認
+    if (localStorage.getItem('js_rpg_save')) {
+        ctx.fillStyle = '#FFFF00';
+        ctx.fillText("※ つづきから あそべます", canvas.width/2, 350);
+    }
+}
+
+function drawEnding() {
+    ctx.fillStyle = '#fff';
+    ctx.font = '30px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText("CONGRATULATIONS!", canvas.width/2, 150);
+    ctx.font = '16px monospace';
+    ctx.fillText("あなたは 魔王をたおし 世界をすくった！", canvas.width/2, 200);
+    ctx.fillText("Thank you for playing.", canvas.width/2, 300);
+}
+
+function drawMap() {
+    // マップ描画
     for (let y = 0; y < CONFIG.rows; y++) {
         for (let x = 0; x < CONFIG.cols; x++) {
-            const tile = mapData[y][x];
-            let color = '#228B22'; // 草
-            if (tile === 1) color = '#808080'; // 壁
-            if (tile === 2) color = '#1E90FF'; // 水
+            const t = mapData[y][x];
+            let c = '#228B22'; // 草
+            if (t === 1) c = '#808080'; // 壁
+            if (t === 2) c = '#1E90FF'; // 水
+            if (t === 3) c = '#FFA500'; // 宿屋(橙)
+            if (t === 4) c = '#800080'; // 魔王(紫)
             
-            ctx.fillStyle = color;
-            ctx.fillRect(x * CONFIG.tileSize, y * CONFIG.tileSize, CONFIG.tileSize, CONFIG.tileSize);
-            ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-            ctx.strokeRect(x * CONFIG.tileSize, y * CONFIG.tileSize, CONFIG.tileSize, CONFIG.tileSize);
+            ctx.fillStyle = c;
+            ctx.fillRect(x*CONFIG.tileSize, y*CONFIG.tileSize, CONFIG.tileSize, CONFIG.tileSize);
+            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+            ctx.strokeRect(x*CONFIG.tileSize, y*CONFIG.tileSize, CONFIG.tileSize, CONFIG.tileSize);
         }
     }
-    // NPC
-    for (const npc of npcs) {
-        ctx.fillStyle = npc.color;
-        ctx.fillRect(npc.x * CONFIG.tileSize +4, npc.y * CONFIG.tileSize +4, 24, 24);
-    }
     // プレイヤー
-    if (images.player && images.player.complete) {
-        ctx.drawImage(images.player, player.x * CONFIG.tileSize, player.y * CONFIG.tileSize, 32, 32);
-    } else {
-        ctx.fillStyle = player.color;
-        ctx.fillRect(player.x * CONFIG.tileSize +4, player.y * CONFIG.tileSize +4, 24, 24);
-    }
+    ctx.fillStyle = player.color || '#FFD700';
+    ctx.fillRect(player.x*CONFIG.tileSize+4, player.y*CONFIG.tileSize+4, 24, 24);
+
+    // ステータス表示 (上部)
+    drawStatusWindow();
+
+    // メニュー表示
+    if (gameState === 'MENU') drawMenuWindow();
 }
 
-function drawBattleScene() {
+function drawBattle() {
     // 背景
     ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0,0, canvas.width, canvas.height);
 
-    // 敵の描画
-    const enemySize = 120;
-    const ex = (canvas.width - enemySize) / 2;
+    // 敵
+    const size = 100;
+    const ex = (canvas.width - size)/2;
     const ey = 80;
-    
-    // 画像があれば描画、なければ四角
-    const enemyImg = images[battleEnemy.id];
-    if (enemyImg && enemyImg.complete) {
-        ctx.drawImage(enemyImg, ex, ey, enemySize, enemySize);
-    } else {
-        ctx.fillStyle = battleEnemy.color;
-        ctx.fillRect(ex, ey, enemySize, enemySize);
-    }
-
-    // ステータス表示
+    ctx.fillStyle = battleEnemy.color || '#F00';
+    ctx.fillRect(ex, ey, size, size);
     ctx.fillStyle = '#fff';
     ctx.font = '20px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`Lv.${player.level}`, 20, 30);
-    ctx.fillText(`HP: ${player.hp}/${player.maxHp}`, 20, 55);
-    ctx.fillText(`MP: ${player.mp}/${player.maxMp}`, 20, 80);
+    ctx.textAlign = 'center';
+    ctx.fillText(battleEnemy.name, canvas.width/2, ey - 20);
 
-    // コマンドウィンドウ（下部固定ではなく、相対位置で表示）
-    // メッセージが出ていない時だけ描画
-    if (battleMenuState !== 'NONE' && messageBox.style.display === 'none') {
-        drawBattleMenu();
+    // ステータス (上部)
+    drawStatusWindow();
+
+    // コマンド (下部)
+    if (messageBox.style.display === 'none') {
+        const cx = 20, cy = 300, cw = 200, ch = 150;
+        drawWindow(cx, cy, cw, ch);
+        
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#fff';
+        const menus = ["たたかう", "じゅもん", "どうぐ", "にげる"];
+        if (battleMenuState === 'MAIN') {
+            menus.forEach((m, i) => {
+                ctx.fillText(m, cx+40, cy+40+(i*30));
+                if (battleCursor === i) ctx.fillText("▶", cx+10, cy+40+(i*30));
+            });
+        } else if (battleMenuState === 'SPELL') {
+            const spells = player.spells;
+            spells.forEach((s, i) => {
+                ctx.fillText(`${s.name}(${s.cost})`, cx+40, cy+40+(i*30));
+                if (battleCursor === i) ctx.fillText("▶", cx+10, cy+40+(i*30));
+            });
+        }
     }
 }
 
-function drawBattleMenu() {
-    const w = 160;
-    const h = 130;
-    const x = 20;
-    // 下から20px浮かす（スマホではみ出ないように）
-    const y = canvas.height - h - 20; 
+function drawStatusWindow() {
+    const w = canvas.width;
+    const h = 80;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0,0,w,h);
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${player.level}Lv  ${player.gold}G`, 10, 25);
+    ctx.fillText(`HP:${player.hp}/${player.maxHp}  MP:${player.mp}/${player.maxMp}`, 10, 50);
+    ctx.fillText(`やくそう:${player.items['yakusou']}`, 200, 25);
+    ctx.fillText(`Exp:${player.exp}/${player.nextExp}`, 200, 50);
+}
 
-    // 枠
+function drawMenuWindow() {
+    const x = 50, y = 50, w = 150, h = 120;
+    drawWindow(x, y, w, h);
+    
+    ctx.fillStyle = '#fff';
+    const items = ["じゅもん(回復)", "やくそう", "セーブ"];
+    items.forEach((it, i) => {
+        ctx.fillText(it, x+30, y+35+(i*30));
+        if (menuCursor === i) ctx.fillText("▶", x+10, y+35+(i*30));
+    });
+}
+
+function drawWindow(x, y, w, h) {
     ctx.fillStyle = '#000';
     ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.strokeRect(x, y, w, h);
-
-    ctx.fillStyle = '#fff';
-    ctx.font = '18px monospace';
-
-    if (battleMenuState === 'MAIN') {
-        const menus = ["たたかう", "じゅもん", "にげる"];
-        menus.forEach((text, i) => {
-            ctx.fillText(text, x + 40, y + 40 + (i * 35));
-            if (battleCursor === i) ctx.fillText("▶", x + 15, y + 40 + (i * 35));
-        });
-    } else if (battleMenuState === 'SPELL') {
-        player.spells.forEach((spell, i) => {
-            ctx.fillText(spell.name, x + 40, y + 40 + (i * 35));
-            // MPコスト表示
-            ctx.font = '14px monospace';
-            ctx.fillText(`(${spell.cost})`, x + 110, y + 40 + (i * 35));
-            ctx.font = '18px monospace';
-            
-            if (spellCursor === i) ctx.fillText("▶", x + 15, y + 40 + (i * 35));
-        });
-    }
 }
 
-// =========================================
-// イベントリスナー
-// =========================================
-
-// キーボード
-document.addEventListener('keydown', (e) => {
-    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
-    let key = e.key;
-    if (key === ' ') key = 'Space';
-    handleInput(key);
-});
-
-// スマホコントローラー
-const btns = document.querySelectorAll('.d-btn, .btn-a');
-btns.forEach(btn => {
-    const handler = (e) => {
-        e.preventDefault();
-        handleInput(btn.getAttribute('data-key'));
-    };
-    btn.addEventListener('touchstart', handler, {passive:false});
-    btn.addEventListener('mousedown', handler); 
-});
-
-// 初期描画
-draw();
+// 起動
+gameLoop();
