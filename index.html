@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DQ-like RPG Battle Demo</title>
+    <title>RPG Demo v2</title>
     <style>
         body {
             background-color: #202020;
@@ -22,64 +22,67 @@
         #game-container {
             position: relative;
             border: 2px solid #fff;
-            margin-bottom: 20px;
-            max-width: 95vw;
+            margin-bottom: 10px;
+            /* 画面内に収まるように調整 */
+            max-width: 100vw;
+            max-height: 60vh; 
         }
 
         canvas {
             display: block;
             background-color: #000;
             width: 100%;
-            height: auto;
+            height: 100%;
+            object-fit: contain;
             image-rendering: pixelated;
         }
 
-        /* メッセージウィンドウ（マップ・戦闘共通） */
+        /* メッセージウィンドウ */
         #message-box {
             position: absolute;
-            bottom: 5px;
-            left: 5px;
-            right: 5px;
-            height: 80px;
-            background: #000;
-            border: 2px solid #fff;
-            border-radius: 4px;
-            padding: 8px;
-            display: none; /* JSで制御 */
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 30%; /* Canvasの下部30%を使う */
+            background: rgba(0, 0, 0, 0.85);
+            border-top: 2px solid #fff;
+            padding: 10px;
+            display: none;
             font-size: 14px;
-            line-height: 1.4;
-            box-shadow: 0 0 0 2px #000 inset;
+            line-height: 1.5;
+            box-sizing: border-box;
             z-index: 10;
-            white-space: pre-wrap; /* 改行を有効に */
+            white-space: pre-wrap;
         }
 
-        /* コントローラー類は前回と同じ */
+        /* コントローラー */
         #controller {
             display: flex;
             justify-content: space-between;
             width: 320px;
-            max-width: 90vw;
-            padding-bottom: 20px;
+            max-width: 95vw;
+            height: 140px; /* 高さ確保 */
+            padding-top: 10px;
         }
         .d-pad { position: relative; width: 120px; height: 120px; }
         .d-btn {
             position: absolute; width: 40px; height: 40px;
             background: #444; border: 1px solid #666; border-radius: 4px;
         }
-        .d-btn:active { background: #666; }
+        .d-btn:active { background: #888; }
         .btn-up { top: 0; left: 40px; }
         .btn-down { bottom: 0; left: 40px; }
         .btn-left { top: 40px; left: 0; }
         .btn-right { top: 40px; right: 0; }
+        
         .action-area { display: flex; align-items: center; justify-content: center; width: 80px; }
         .btn-a {
-            width: 60px; height: 60px; background: #b22222;
+            width: 70px; height: 70px; background: #b22222;
             border: 2px solid #ff6347; border-radius: 50%;
             color: white; font-weight: bold; font-size: 20px;
             display: flex; align-items: center; justify-content: center;
         }
         .btn-a:active { background: #ff6347; }
-
     </style>
 </head>
 <body>
@@ -97,359 +100,11 @@
         <div class="d-btn btn-down"  data-key="ArrowDown"></div>
     </div>
     <div class="action-area">
-        <div class="btn-a" data-key="Space">A</div>
+        <div class="btn-a" data-key="Space">決定</div>
     </div>
 </div>
 
-<script>
-// --- 設定 ---
-const TILE_SIZE = 32;
-const ROWS = 15;
-const COLS = 15;
+<script src="game.js"></script>
 
-// マップデータ (0:草, 1:壁, 2:水)
-const mapData = [
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,1,0,0,0,0,0,0,1],
-    [1,0,0,1,1,1,0,0,0,0,1,0,0,0,1],
-    [1,0,0,1,2,1,0,0,0,0,1,0,0,0,1],
-    [1,0,0,1,2,1,0,0,0,0,1,0,0,0,1],
-    [1,0,0,1,1,1,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,1,1,1,0,0,0,0,0,1],
-    [1,0,0,0,0,0,1,0,1,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-];
-
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-const messageBox = document.getElementById('message-box');
-
-// --- ゲーム状態管理 ---
-// PLAYING: マップ移動中
-// DIALOGUE: NPCとの会話中
-// BATTLE: 戦闘中
-let gameState = 'PLAYING'; 
-
-// --- プレイヤー ---
-const player = {
-    x: 2, y: 2, direction: 'down', color: '#FFD700',
-    // ステータスを追加
-    hp: 50, maxHp: 50, attack: 10
-};
-
-// --- NPC ---
-const npcs = [
-    { x: 7, y: 5, color: '#FF69B4', message: "草むらをあるくと\nまもの が 出るぞ！", name: "村人A" },
-    { x: 10, y: 10, color: '#00FFFF', message: "たたかうときは\nスペースキーで 決定だ。", name: "兵士" }
-];
-
-// --- 戦闘用変数 ---
-let battleEnemy = null; // 現在戦っている敵
-let battleCursor = 0;   // コマンド選択 (0:たたかう, 1:にげる)
-let battlePhase = 'SELECT'; // SELECT, PROCESSING, RESULT
-
-// 敵データ（将来は画像パスなどをここに追加）
-const enemyTypes = [
-    { name: 'スライム', hp: 20, attack: 5, color: '#32CD32', xp: 5 },
-    { name: 'ドラキー', hp: 15, attack: 8, color: '#4B0082', xp: 8 },
-    { name: 'ゴーレム', hp: 50, attack: 15, color: '#A52A2A', xp: 20 }
-];
-
-// --- 入力ハンドリング ---
-
-function handleInput(key) {
-    if (gameState === 'PLAYING') {
-        // マップ移動
-        if (key.startsWith('Arrow')) movePlayer(key);
-        if (key === 'Space' || key === 'Enter') checkInteraction();
-
-    } else if (gameState === 'DIALOGUE') {
-        // 会話送り
-        if (key === 'Space' || key === 'Enter') {
-            gameState = 'PLAYING';
-            messageBox.style.display = 'none';
-        }
-
-    } else if (gameState === 'BATTLE') {
-        // 戦闘コマンド
-        handleBattleInput(key);
-    }
-}
-
-// プレイヤー移動処理
-function movePlayer(key) {
-    let nextX = player.x;
-    let nextY = player.y;
-
-    if (key === 'ArrowUp')    { nextY--; player.direction = 'up'; }
-    if (key === 'ArrowDown')  { nextY++; player.direction = 'down'; }
-    if (key === 'ArrowLeft')  { nextX--; player.direction = 'left'; }
-    if (key === 'ArrowRight') { nextX++; player.direction = 'right'; }
-
-    // 通行可能か
-    if (isWalkable(nextX, nextY)) {
-        player.x = nextX;
-        player.y = nextY;
-        
-        // エンカウント判定 (10%の確率)
-        // 水(2)の上などでは出ないようにするなら条件追加
-        if (mapData[nextY][nextX] === 0 && Math.random() < 0.1) {
-            startBattle();
-        }
-    }
-    draw();
-}
-
-// --- 戦闘システム ---
-
-function startBattle() {
-    gameState = 'BATTLE';
-    
-    // ランダムに敵を選出
-    const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
-    // 敵インスタンス作成（コピー）
-    battleEnemy = { ...type, maxHp: type.hp }; 
-    
-    battleCursor = 0;
-    battlePhase = 'SELECT';
-    
-    // メッセージ表示
-    showMessage(`${battleEnemy.name} が あらわれた！`, true);
-    draw();
-}
-
-function handleBattleInput(key) {
-    if (battlePhase !== 'SELECT') return; // アニメーション中は操作不能
-
-    if (key === 'ArrowUp' || key === 'ArrowDown') {
-        // カーソル移動 (0 <-> 1)
-        battleCursor = (battleCursor === 0) ? 1 : 0;
-        draw();
-    }
-    
-    if (key === 'Space' || key === 'Enter') {
-        executeBattleCommand();
-    }
-}
-
-function executeBattleCommand() {
-    battlePhase = 'PROCESSING';
-
-    if (battleCursor === 0) {
-        // 「たたかう」
-        const dmg = Math.max(1, player.attack - Math.floor(Math.random() * 2)); // 簡易ダメージ計算
-        battleEnemy.hp -= dmg;
-        showMessage(`あなたの こうげき！\n${battleEnemy.name} に ${dmg} のダメージ！`, true);
-
-        // 1秒後に判定
-        setTimeout(() => {
-            if (battleEnemy.hp <= 0) {
-                endBattle(true);
-            } else {
-                enemyTurn();
-            }
-        }, 1000);
-
-    } else {
-        // 「にげる」
-        showMessage("あなたは にげだした！", true);
-        setTimeout(() => {
-            endBattle(false); // 逃走成功
-        }, 1000);
-    }
-    draw(); // 画面更新
-}
-
-function enemyTurn() {
-    const dmg = Math.max(1, battleEnemy.attack - Math.floor(Math.random() * 2));
-    player.hp -= dmg;
-    
-    showMessage(`${battleEnemy.name} の こうげき！\nあなたは ${dmg} のダメージをうけた！`, true);
-    draw();
-
-    setTimeout(() => {
-        if (player.hp <= 0) {
-            showMessage("あなたは しんでしまった...", true);
-            // ゲームオーバー処理（ここではHP回復してリセット）
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            // 次のターンへ
-            battlePhase = 'SELECT';
-            showMessage(`${battleEnemy.name} が あらわれた！\nコマンド？`, true); // メッセージ戻す
-            draw();
-        }
-    }, 1000);
-}
-
-function endBattle(win) {
-    gameState = 'PLAYING';
-    messageBox.style.display = 'none';
-    if (win) {
-        // 勝利メッセージなど出したければここでDialog状態にする
-        // 今回は即マップへ
-    }
-    draw();
-}
-
-
-// --- 描画処理 ---
-
-function draw() {
-    // 画面全体クリア
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    if (gameState === 'BATTLE') {
-        drawBattle();
-    } else {
-        drawMap();
-    }
-}
-
-// マップ描画
-function drawMap() {
-    // マップタイル
-    for (let y = 0; y < ROWS; y++) {
-        for (let x = 0; x < COLS; x++) {
-            const tile = mapData[y][x];
-            let color = '#228B22'; 
-            if (tile === 1) color = '#808080';
-            if (tile === 2) color = '#1E90FF';
-            
-            ctx.fillStyle = color;
-            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-            ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-            ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-        }
-    }
-    // NPC
-    for (const npc of npcs) {
-        ctx.fillStyle = npc.color;
-        ctx.fillRect(npc.x * TILE_SIZE + 4, npc.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
-    }
-    // プレイヤー
-    ctx.fillStyle = player.color;
-    ctx.fillRect(player.x * TILE_SIZE + 4, player.y * TILE_SIZE + 4, TILE_SIZE - 8, TILE_SIZE - 8);
-}
-
-// 戦闘画面描画
-function drawBattle() {
-    // 1. 背景（黒）
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // 2. 敵の描画（画面中央）
-    // 将来的にはここを ctx.drawImage(enemyImg, ...) に変える
-    const enemySize = 120;
-    const enemyX = (canvas.width - enemySize) / 2;
-    const enemyY = 100;
-    
-    ctx.fillStyle = battleEnemy.color;
-    ctx.fillRect(enemyX, enemyY, enemySize, enemySize);
-    
-    // 敵の名前表示（デバッグ的）
-    ctx.fillStyle = '#fff';
-    ctx.font = '20px Courier New';
-    ctx.textAlign = 'center';
-    ctx.fillText(battleEnemy.name, canvas.width / 2, enemyY - 20);
-
-    // 3. プレイヤーHP表示
-    ctx.textAlign = 'left';
-    ctx.fillText(`HP: ${player.hp} / ${player.maxHp}`, 20, 40);
-
-    // 4. コマンドウィンドウ描画
-    // メッセージが出ていない時（＝入力待ち）だけコマンドを出す
-    // あるいは常に右下に出しておくなど、デザイン次第
-    if (battlePhase === 'SELECT') {
-        const cmdX = 20;
-        const cmdY = 280;
-        const cmdW = 150;
-        const cmdH = 100;
-
-        // 枠
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 4;
-        ctx.strokeRect(cmdX, cmdY, cmdW, cmdH);
-        ctx.fillStyle = '#000';
-        ctx.fillRect(cmdX, cmdY, cmdW, cmdH);
-
-        // 文字
-        ctx.fillStyle = '#fff';
-        ctx.font = '24px Courier New';
-        ctx.fillText("たたかう", cmdX + 40, cmdY + 40);
-        ctx.fillText("にげる",   cmdX + 40, cmdY + 80);
-
-        // カーソル (▶)
-        ctx.fillText("▶", cmdX + 15, cmdY + 40 + (battleCursor * 40));
-    }
-}
-
-// --- 共通・ヘルパー ---
-
-function isWalkable(x, y) {
-    if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return false;
-    if (mapData[y][x] !== 0) return false;
-    for (const npc of npcs) if (npc.x === x && npc.y === y) return false;
-    return true;
-}
-
-function checkInteraction() {
-    let targetX = player.x;
-    let targetY = player.y;
-    if (player.direction === 'up') targetY--;
-    if (player.direction === 'down') targetY++;
-    if (player.direction === 'left') targetX--;
-    if (player.direction === 'right') targetX++;
-
-    const targetNPC = npcs.find(n => n.x === targetX && n.y === targetY);
-    if (targetNPC) {
-        showMessage(targetNPC.name + ":\n" + targetNPC.message);
-    }
-}
-
-// メッセージ表示関数
-// battleMode: trueなら戦闘用（オーバーレイしたまま）、falseなら会話用
-function showMessage(text, battleMode = false) {
-    if (!battleMode) gameState = 'DIALOGUE';
-    messageBox.innerHTML = text;
-    messageBox.style.display = 'block';
-}
-
-// キーイベント
-document.addEventListener('keydown', (e) => {
-    // 矢印キーなどのデフォルト動作無効化
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
-        e.preventDefault();
-    }
-    
-    // キーマッピング
-    let key = e.key;
-    if (key === ' ') key = 'Space';
-    
-    handleInput(key);
-});
-
-// タッチイベント
-const buttons = document.querySelectorAll('.d-btn, .btn-a');
-buttons.forEach(btn => {
-    const trigger = (e) => {
-        e.preventDefault();
-        const key = btn.getAttribute('data-key');
-        handleInput(key);
-    };
-    btn.addEventListener('touchstart', trigger, { passive: false });
-    btn.addEventListener('mousedown', trigger);
-});
-
-// 初期描画
-draw();
-
-</script>
 </body>
 </html>
