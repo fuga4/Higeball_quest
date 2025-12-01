@@ -1,9 +1,9 @@
 /* =========================================
-   設定・データ管理エリア (ここを編集して画像を差し替える)
+   設定・データ管理エリア
    ========================================= */
 const ASSETS = {
     // 画像ファイルがある場合はパスを指定 (例: 'img/hero.png')
-    // 画像がない場合は null にすると色の四角で表示されます
+    // 画像がない場合は null (色の四角で表示)
     player: null, 
     slime: null,
     golem: null,
@@ -46,7 +46,7 @@ const messageBox = document.getElementById('message-box');
 // ゲーム状態: PLAYING, DIALOGUE, BATTLE
 let gameState = 'PLAYING'; 
 
-// 画像プリロード処理（簡易版）
+// 画像プリロード処理
 const images = {};
 for (const key in ASSETS) {
     if (ASSETS[key]) {
@@ -56,7 +56,7 @@ for (const key in ASSETS) {
     }
 }
 
-// --- プレイヤーデータ (レベル・魔法対応) ---
+// --- プレイヤーデータ ---
 const player = {
     x: 2, y: 2, direction: 'down', color: '#FFD700',
     // ステータス
@@ -64,7 +64,7 @@ const player = {
     hp: 30, maxHp: 30,
     mp: 10, maxMp: 10,
     attack: 8,
-    exp: 0, nextExp: 10, // 次のレベルまで10
+    exp: 0, nextExp: 10, 
     spells: [
         { name: "ホイミ", cost: 3, type: "heal", value: 15 },
         { name: "メラ",   cost: 2, type: "dmg",  value: 12 }
@@ -123,7 +123,7 @@ function movePlayer(key) {
         player.x = nextX;
         player.y = nextY;
         
-        // エンカウント判定 (歩ける場所なら)
+        // エンカウント判定 (10%の確率)
         if (mapData[nextY][nextX] === 0 && Math.random() < 0.1) {
             startBattle();
         }
@@ -156,7 +156,7 @@ function showMessage(text, isBattle = false) {
 }
 
 // =========================================
-// 戦闘システム (大幅強化)
+// 戦闘システム
 // =========================================
 
 function startBattle() {
@@ -169,13 +169,17 @@ function startBattle() {
 
     showMessage(`${battleEnemy.name} が あらわれた！`, true);
     draw();
+
+    // 【修正】1.5秒後にメッセージを消してコマンド入力を可能にする
+    setTimeout(() => {
+        messageBox.style.display = 'none';
+        draw();
+    }, 1500);
 }
 
 function handleBattleInput(key) {
-    // 敵ターン中などは操作無効
+    // メッセージ表示中は入力を無視
     if (messageBox.style.display === 'block' && gameState === 'BATTLE') {
-        // メッセージ送り待ち状態があればここで処理するが、
-        // 今回はsetTimeoutで自動送りするので何もしない
         return; 
     }
 
@@ -216,7 +220,11 @@ function executeAttack() {
 function executeSpell(spell) {
     if (player.mp < spell.cost) {
         showMessage(`MPが 足りない！`, true);
-        setTimeout(() => { showMessage(""); draw(); }, 1000);
+        // 【修正】メッセージを消して戻る処理を追加
+        setTimeout(() => { 
+            messageBox.style.display = 'none'; 
+            draw(); 
+        }, 1000);
         return;
     }
 
@@ -226,7 +234,7 @@ function executeSpell(spell) {
         // 回復
         player.hp = Math.min(player.maxHp, player.hp + spell.value);
         showMessage(`${spell.name} を となえた！\nHPが ${spell.value} かいふくした！`, true);
-        setTimeout(() => enemyTurn(), 1000); // 回復は即敵ターンへ
+        setTimeout(() => enemyTurn(), 1000); 
 
     } else if (spell.type === 'dmg') {
         // 攻撃魔法
@@ -275,7 +283,7 @@ function enemyTurn() {
     }, 1500);
 }
 
-// 勝利処理（レベルアップ含む）
+// 勝利処理
 function processWin() {
     const xp = battleEnemy.xp;
     player.exp += xp;
@@ -291,7 +299,7 @@ function processWin() {
         // ステータス上昇
         player.maxHp += 5;
         player.maxMp += 3;
-        player.hp = player.maxHp; // 全回復ボーナス
+        player.hp = player.maxHp; // 全回復
         player.mp = player.maxMp;
         player.attack += 2;
 
@@ -333,8 +341,6 @@ function drawMapScene() {
             if (tile === 1) color = '#808080'; // 壁
             if (tile === 2) color = '#1E90FF'; // 水
             
-            // 画像があれば画像を使う（例: images.mapTile）
-            // ここでは簡易的に色塗り
             ctx.fillStyle = color;
             ctx.fillRect(x * CONFIG.tileSize, y * CONFIG.tileSize, CONFIG.tileSize, CONFIG.tileSize);
             ctx.strokeStyle = 'rgba(0,0,0,0.1)';
@@ -346,7 +352,7 @@ function drawMapScene() {
         ctx.fillStyle = npc.color;
         ctx.fillRect(npc.x * CONFIG.tileSize +4, npc.y * CONFIG.tileSize +4, 24, 24);
     }
-    // プレイヤー（画像対応）
+    // プレイヤー
     if (images.player && images.player.complete) {
         ctx.drawImage(images.player, player.x * CONFIG.tileSize, player.y * CONFIG.tileSize, 32, 32);
     } else {
@@ -383,7 +389,7 @@ function drawBattleScene() {
     ctx.fillText(`MP: ${player.mp}/${player.maxMp}`, 20, 80);
 
     // コマンドウィンドウ（下部固定ではなく、相対位置で表示）
-    // スマホではみ出るのを防ぐため、Canvasの高さ基準で描画
+    // メッセージが出ていない時だけ描画
     if (battleMenuState !== 'NONE' && messageBox.style.display === 'none') {
         drawBattleMenu();
     }
@@ -393,7 +399,8 @@ function drawBattleMenu() {
     const w = 160;
     const h = 130;
     const x = 20;
-    const y = canvas.height - h - 20; // 下から20px浮かす
+    // 下から20px浮かす（スマホではみ出ないように）
+    const y = canvas.height - h - 20; 
 
     // 枠
     ctx.fillStyle = '#000';
@@ -424,7 +431,6 @@ function drawBattleMenu() {
     }
 }
 
-
 // =========================================
 // イベントリスナー
 // =========================================
@@ -445,7 +451,7 @@ btns.forEach(btn => {
         handleInput(btn.getAttribute('data-key'));
     };
     btn.addEventListener('touchstart', handler, {passive:false});
-    btn.addEventListener('mousedown', handler); // PCデバッグ用
+    btn.addEventListener('mousedown', handler); 
 });
 
 // 初期描画
